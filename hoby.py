@@ -95,6 +95,7 @@ class MilkFishGUI:
         self.sorting = False
         self.sort_start_time = 0
         self.timer_id = None
+        self.final_duration = 0.0
 
         tk.Label(root, text="MilkFish Sort System", font=("Arial", 16, "bold")).pack(pady=10)
         
@@ -194,6 +195,9 @@ class MilkFishGUI:
         if self.timer_id:
             self.root.after_cancel(self.timer_id)
             self.timer_id = None
+        actual_duration = time.time() - self.sort_start_time
+        self.final_duration = actual_duration
+        self.timer_label.config(text=f"{actual_duration:.3f}s")
         self.sorting = False
 
     def run_sort(self, sort_type):
@@ -219,6 +223,7 @@ class MilkFishGUI:
                 algo_name = "Auto (Merge)"
 
         self.sorting = True
+        self.final_duration = 0.0
         self.progress['value'] = 0
         self.timer_label.config(text="0.000s")
         self.report_area.delete(1.0, tk.END)
@@ -242,6 +247,7 @@ class MilkFishGUI:
         sort_thread.start()
     
     def _sort_in_thread(self, sort_type, data, algo_name):
+        finalize_args = None
         try:
             if sort_type == "bubble":
                 sorted_data, duration = bubble_sort(data, self.update_progress)
@@ -251,16 +257,20 @@ class MilkFishGUI:
                 sorted_data, duration = merge_sort_wrapper(data, self.update_progress)
             else:
                 sorted_data, duration = merge_sort_wrapper(data, self.update_progress)
-            
-            # Update report in main thread
-            self.root.after(0, self._update_report, algo_name, duration, sorted_data)
+            finalize_args = (algo_name, duration, sorted_data)
+        except Exception as exc:
+            self.root.after(0, lambda: messagebox.showerror("Error", str(exc)))
         finally:
             self.root.after(0, self._stop_timer)
+            if finalize_args:
+                self.root.after(0, self._update_report, *finalize_args)
     
     def _update_report(self, algo_name, duration, sorted_data):
+        actual_duration = self.final_duration or (time.time() - self.sort_start_time)
         self.report_area.delete(1.0, tk.END)
         self.report_area.insert(tk.END, f"Algorithm: {algo_name.upper()}\n")
-        self.report_area.insert(tk.END, f"Time: {duration:.6f}s\n")
+        self.report_area.insert(tk.END, f"Time: {actual_duration:.6f}s\n")
+        self.report_area.insert(tk.END, f"Algo Timer: {duration:.6f}s\n")
         self.report_area.insert(tk.END, f"Size: {len(sorted_data)}\n")
         self.report_area.see(tk.END)
         
@@ -268,7 +278,7 @@ class MilkFishGUI:
         self.output_area.insert(tk.END, str(sorted_data) + "\n")
         self.output_area.see(tk.END)
         
-        self.timer_label.config(text=f"{duration:.3f}s")
+        self.timer_label.config(text=f"{actual_duration:.3f}s")
 
 
 # --- TERMINAL INTERFACE ---
