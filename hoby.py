@@ -331,7 +331,10 @@ def terminal_menu():
             print("Invalid choice.")
             continue
             
-        print(f"\n{name} Results:")
+        print("\nSorted Data:")
+        print(res)
+        print("\nReport:")
+        print(f"Algorithm: {name}")
         print(f"Time: {t:.6f} seconds")
         print(f"Dataset Size: {len(res)}")
 
