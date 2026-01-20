@@ -1,10 +1,11 @@
 import time
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from tkinter import messagebox, scrolledtext, filedialog, ttk
+import threading
 
 # --- SORTING ALGORITHMS ---
 
-def bubble_sort(arr):
+def bubble_sort(arr, update_callback=None):
     start_time = time.time()
     n = len(arr)
     for i in range(n):
@@ -13,19 +14,33 @@ def bubble_sort(arr):
             if arr[j] < arr[j + 1]: # Descending
                 arr[j], arr[j + 1] = arr[j + 1], arr[j]
                 swapped = True
+            
+        # Update progress every N iterations (only progress, no data)
+        if update_callback and i % max(1, n // 50) == 0:
+            update_callback((i + 1) / n * 100)
+            
         if not swapped:
             break
+            
+    if update_callback: update_callback(100)
     return arr, time.time() - start_time
 
-def insertion_sort(arr):
+def insertion_sort(arr, update_callback=None):
     start_time = time.time()
-    for i in range(1, len(arr)):
+    n = len(arr)
+    for i in range(1, n):
         key = arr[i]
         j = i - 1
         while j >= 0 and key > arr[j]: # Descending
             arr[j + 1] = arr[j]
             j -= 1
         arr[j + 1] = key
+        
+        # Update progress every N iterations (only progress, no data)
+        if update_callback and i % max(1, n // 50) == 0:
+            update_callback((i + 1) / n * 100)
+            
+    if update_callback: update_callback(100)
     return arr, time.time() - start_time
 
 def merge_sort_logic(arr):
@@ -51,9 +66,11 @@ def merge(left, right):
     result.extend(right[j:])
     return result
 
-def merge_sort_wrapper(arr):
+def merge_sort_wrapper(arr, update_callback=None):
     start_time = time.time()
+    if update_callback: update_callback(10) # Started
     sorted_arr = merge_sort_logic(arr)
+    if update_callback: update_callback(100)
     return sorted_arr, time.time() - start_time
 
 # --- DATA HANDLING ---
@@ -71,40 +88,188 @@ class MilkFishGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("MilkFish Sort - Premium Edition")
-        self.root.geometry("500x500")
+        self.root.state("zoomed")
         
+        self.dataset_path = None
+        self.current_data = []
+        self.sorting = False
+        self.sort_start_time = 0
+        self.timer_id = None
+
         tk.Label(root, text="MilkFish Sort System", font=("Arial", 16, "bold")).pack(pady=10)
         
-        self.btn_bubble = tk.Button(root, text="Run Bubble Sort", width=25, command=lambda: self.run_sort("bubble"))
+        # Main container for controls
+        controls_frame = ttk.Frame(root)
+        controls_frame.pack(expand=True, fill="both", padx=10, pady=10)
+        
+        # Import & reset controls
+        self.btn_import = tk.Button(controls_frame, text="Import Dataset", width=25, command=self.import_dataset)
+        self.btn_import.pack(pady=5)
+        self.btn_reset = tk.Button(controls_frame, text="View Default Dataset", width=25, command=self.reset_to_default)
+        self.btn_reset.pack(pady=5)
+
+        # Sorting Buttons
+        self.btn_auto = tk.Button(controls_frame, text="★ AUTO SORT (Fastest) ★", width=25, bg="gold", command=lambda: self.run_sort("auto"))
+        self.btn_auto.pack(pady=5)
+        
+        self.btn_bubble = tk.Button(controls_frame, text="Run Bubble Sort", width=25, command=lambda: self.run_sort("bubble"))
         self.btn_bubble.pack(pady=5)
         
-        self.btn_insertion = tk.Button(root, text="Run Insertion Sort", width=25, command=lambda: self.run_sort("insertion"))
+        self.btn_insertion = tk.Button(controls_frame, text="Run Insertion Sort", width=25, command=lambda: self.run_sort("insertion"))
         self.btn_insertion.pack(pady=5)
         
-        self.btn_merge = tk.Button(root, text="Run Merge Sort", width=25, command=lambda: self.run_sort("merge"))
+        self.btn_merge = tk.Button(controls_frame, text="Run Merge Sort", width=25, command=lambda: self.run_sort("merge"))
         self.btn_merge.pack(pady=5)
         
-        self.output_area = scrolledtext.ScrolledText(root, width=55, height=15)
-        self.output_area.pack(pady=10)
+        # Progress
+        tk.Label(controls_frame, text="Progress:").pack(pady=(10,0))
+        self.progress = ttk.Progressbar(controls_frame, orient="horizontal", length=300, mode="determinate")
+        self.progress.pack(pady=5)
+        
+        # Timer
+        tk.Label(controls_frame, text="Timer:", font=("Arial", 9, "bold")).pack(pady=(5,0))
+        self.timer_label = tk.Label(controls_frame, text="0.000s", font=("Arial", 10), fg="green")
+        self.timer_label.pack()
+
+        # Output area
+        tk.Label(controls_frame, text="Output:", font=("Arial", 9, "bold")).pack(pady=(5,0))
+        self.output_area = scrolledtext.ScrolledText(controls_frame, width=60, height=12)
+        self.output_area.pack(pady=3)
+        
+        # Report area (separate)
+        tk.Label(controls_frame, text="Report:", font=("Arial", 9, "bold")).pack(pady=(3,0))
+        self.report_area = scrolledtext.ScrolledText(controls_frame, width=60, height=6)
+        self.report_area.pack(pady=3)
+        
+        # Load default dataset on startup
+        self.load_default_dataset()
+
+    def import_dataset(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
+        if file_path:
+            self._load_dataset_from_path(file_path, f"Loaded: {file_path}", show_alert=True)
+    
+    def load_default_dataset(self):
+        self._load_dataset_from_path("dataset.txt", "Default Dataset")
+
+    def reset_to_default(self):
+        if self.sorting:
+            messagebox.showwarning("Warning", "Finish the current sort before resetting.")
+            return
+        if self._load_dataset_from_path("dataset.txt", "Default Dataset", show_alert=True):
+            self.progress['value'] = 0
+            self.timer_label.config(text="0.000s")
+
+    def _load_dataset_from_path(self, path, label, show_alert=False):
+        data = read_dataset(path)
+        if data:
+            self.dataset_path = path
+            self.current_data = data
+            self._show_dataset(label, data)
+            if show_alert:
+                messagebox.showinfo("Success", f"{label} ready!")
+            return True
+        else:
+            messagebox.showerror("Error", f"Could not read dataset from {path}!")
+            return False
+
+    def _show_dataset(self, label, data):
+        self.output_area.delete(1.0, tk.END)
+        contents = ", ".join(map(str, data))
+        self.output_area.insert(tk.END, f"{label}\nSize: {len(data)}\nContents:\n{contents}\n" + "-"*30 + "\n")
+        self.output_area.see(tk.END)
+
+    def update_progress(self, percent):
+        self.root.after(0, self._apply_progress, percent)
+
+    def _apply_progress(self, percent):
+        self.progress['value'] = percent
+    
+    def update_timer(self):
+        elapsed = time.time() - self.sort_start_time
+        self.timer_label.config(text=f"{elapsed:.3f}s")
+        self.timer_id = self.root.after(100, self.update_timer)
+
+    def _stop_timer(self):
+        if self.timer_id:
+            self.root.after_cancel(self.timer_id)
+            self.timer_id = None
+        self.sorting = False
 
     def run_sort(self, sort_type):
-        data = read_dataset()
-        if data is None:
-            messagebox.showerror("Error", "dataset.txt not found!")
+        if self.sorting:
+            messagebox.showwarning("Warning", "A sort is already in progress!")
+            return
+            
+        if not self.dataset_path:
+            messagebox.showerror("Error", "No dataset loaded!")
             return
         
-        if sort_type == "bubble":
-            sorted_data, duration = bubble_sort(data.copy())
-        elif sort_type == "insertion":
-            sorted_data, duration = insertion_sort(data.copy())
-        else:
-            sorted_data, duration = merge_sort_wrapper(data.copy())
-            
+        data = self.current_data.copy()
+        algo_name = sort_type
+        
+        # Auto Sort Logic
+        if sort_type == "auto":
+            n = len(data)
+            if n < 50: 
+                sort_type = "insertion"
+                algo_name = "Auto (Insertion)"
+            else:
+                sort_type = "merge"
+                algo_name = "Auto (Merge)"
+
+        self.sorting = True
+        self.progress['value'] = 0
+        self.timer_label.config(text="0.000s")
+        self.report_area.delete(1.0, tk.END)
         self.output_area.delete(1.0, tk.END)
-        self.output_area.insert(tk.END, f"Algorithm: {sort_type.upper()}\n")
-        self.output_area.insert(tk.END, f"Time Spent: {duration:.6f} seconds\n")
-        self.output_area.insert(tk.END, "-"*30 + "\n")
-        self.output_area.insert(tk.END, str(sorted_data))
+        preview = ", ".join(map(str, data))
+        self.output_area.insert(tk.END, f"Dataset Snapshot:\n{preview}\n")
+        self.output_area.insert(tk.END, f"\nRunning {algo_name}...\n")
+        self.output_area.see(tk.END)
+        self.root.update()
+        
+        # Start timer
+        self.sort_start_time = time.time()
+        self.timer_id = self.root.after(100, self.update_timer)
+        
+        # Run sort in separate thread
+        sort_thread = threading.Thread(
+            target=self._sort_in_thread,
+            args=(sort_type, data.copy(), algo_name)
+        )
+        sort_thread.daemon = True
+        sort_thread.start()
+    
+    def _sort_in_thread(self, sort_type, data, algo_name):
+        try:
+            if sort_type == "bubble":
+                sorted_data, duration = bubble_sort(data, self.update_progress)
+            elif sort_type == "insertion":
+                sorted_data, duration = insertion_sort(data, self.update_progress)
+            elif sort_type == "merge":
+                sorted_data, duration = merge_sort_wrapper(data, self.update_progress)
+            else:
+                sorted_data, duration = merge_sort_wrapper(data, self.update_progress)
+            
+            # Update report in main thread
+            self.root.after(0, self._update_report, algo_name, duration, sorted_data)
+        finally:
+            self.root.after(0, self._stop_timer)
+    
+    def _update_report(self, algo_name, duration, sorted_data):
+        self.report_area.delete(1.0, tk.END)
+        self.report_area.insert(tk.END, f"Algorithm: {algo_name.upper()}\n")
+        self.report_area.insert(tk.END, f"Time: {duration:.6f}s\n")
+        self.report_area.insert(tk.END, f"Size: {len(sorted_data)}\n")
+        self.report_area.see(tk.END)
+        
+        self.output_area.insert(tk.END, f"\nSorted Result:\n")
+        self.output_area.insert(tk.END, str(sorted_data) + "\n")
+        self.output_area.see(tk.END)
+        
+        self.timer_label.config(text=f"{duration:.3f}s")
+
 
 # --- TERMINAL INTERFACE ---
 
@@ -114,13 +279,14 @@ def terminal_menu():
         print("1. Bubble Sort")
         print("2. Insertion Sort")
         print("3. Merge Sort")
-        print("4. Launch GUI Mode")
-        print("5. Exit")
+        print("4. Auto Sort")
+        print("5. Launch GUI Mode")
+        print("6. Exit")
         
         choice = input("Select an option: ")
         
-        if choice == '5': break
-        if choice == '4':
+        if choice == '6': break
+        if choice == '5':
             root = tk.Tk()
             MilkFishGUI(root)
             root.mainloop()
@@ -130,6 +296,17 @@ def terminal_menu():
         if data is None:
             print("Error: dataset.txt not found.")
             continue
+        
+        # Auto Sort Logic
+        if choice == '4':
+            n = len(data)
+            if n < 50:
+                choice = '2'
+                auto_type = "Insertion"
+            else:
+                choice = '3'
+                auto_type = "Merge"
+            print(f"Auto-selected: {auto_type} Sort (dataset size: {n})")
             
         if choice == '1':
             res, t = bubble_sort(data.copy())
@@ -144,9 +321,9 @@ def terminal_menu():
             print("Invalid choice.")
             continue
             
-        print(f"Sorted Data: {res}")
         print(f"\n{name} Results:")
         print(f"Time: {t:.6f} seconds")
+        print(f"Dataset Size: {len(res)}")
 
 if __name__ == "__main__":
     terminal_menu()
