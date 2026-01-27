@@ -1,14 +1,15 @@
 import time
+import random
 
-def bubble_sort_descending(arr):
+def bubble_sort(arr):
     """
-    Sorts an array using the bubble sort algorithm in descending order.
+    Sorts an array using the bubble sort algorithm in ascending order.
     
     Args:
         arr: List of comparable elements to sort
         
     Returns:
-        Tuple of (sorted list in descending order, time taken in seconds)
+        Tuple of (sorted list in ascending order, time taken in seconds)
     """
     start_time = time.time()
     n = len(arr)
@@ -20,8 +21,8 @@ def bubble_sort_descending(arr):
         
         # Last i elements are already in place
         for j in range(0, n - i - 1):
-            # Swap if the element found is less than the next element (descending order)
-            if arr[j] < arr[j + 1]:
+            # Swap if the element found is greater than the next element (ascending order)
+            if arr[j] > arr[j + 1]:
                 arr[j], arr[j + 1] = arr[j + 1], arr[j]
                 swapped = True
         
@@ -33,6 +34,17 @@ def bubble_sort_descending(arr):
     time_taken = end_time - start_time
     
     return arr, time_taken
+
+
+def generate_dataset(filename):
+    """Generates a dataset of random integers."""
+    # Default size if generating from scratch
+    size = 10000
+    print(f"Generating {size} random integers...")
+    with open(filename, 'w') as f:
+        for _ in range(size):
+            f.write(f"{random.randint(1, 100000)}\n")
+    print(f"Dataset generated: {filename}")
 
 
 def read_dataset(filename):
@@ -58,22 +70,28 @@ def read_dataset(filename):
 if __name__ == "__main__":
     # Read data from dataset.txt
     dataset_file = "dataset.txt"
+    
+    # Try to read, if not found or empty, generate
+    import os
+    if not os.path.exists(dataset_file):
+        generate_dataset(dataset_file)
+        
     data = read_dataset(dataset_file)
     
     if data:
         print(f"Loaded {len(data)} numbers from {dataset_file}")
         print()
         
-        # Perform bubble sort in descending order
-        print("Starting Bubble Sort (Descending Order)...")
-        sorted_data, time_taken = bubble_sort_descending(data.copy())
+        # Perform bubble sort in ascending order
+        print("Starting Bubble Sort (Ascending Order)...")
+        sorted_data, time_taken = bubble_sort(data.copy())
         
         # Display results
         print()
         print("=" * 60)
         print("RESULTS")
         print("=" * 60)
-        print("All sorted data (descending order):")
+        print("All sorted data (ascending order):")
         print(sorted_data)
         print()
         print(f"Time spent: {time_taken:.6f} seconds")
