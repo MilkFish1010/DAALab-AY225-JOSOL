@@ -141,14 +141,14 @@ def pick_edge_color(u, v):
 #  NODE POSITIONS  (normalised 0-1)
 # ══════════════════════════════════════════════
 BASE_POS = {
-    "IMUS":     (0.35, 0.22),
-    "BACOOR":   (0.62, 0.18),
-    "DASMA":    (0.80, 0.35),
-    "KAWIT":    (0.52, 0.48),
-    "INDANG":   (0.28, 0.60),
-    "SILANG":   (0.65, 0.60),
-    "GENTRI":   (0.82, 0.75),
-    "NOVELETA": (0.15, 0.40),
+    "DASMA":    (0.15, 0.15),
+    "BACOOR":   (0.5, 0.15),
+    "IMUS":     (0.85, 0.15),
+    "SILANG":   (0.5, 0.5),
+    "NOVELETA": (0.85, 0.5),
+    "KAWIT":    (0.15, 0.85),
+    "INDANG":   (0.5, 0.85),
+    "GENTRI":   (0.85, 0.85),
 }
 
 # ══════════════════════════════════════════════
@@ -201,7 +201,7 @@ def path_totals(graph, path):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("CAVITE GRID — NEURAL PATHFINDER v2.77")
+        self.title("CAVITE GRID — Travelling Salesman PATHFINDER v2.77")
         self.configure(bg=C["bg"])
         self.minsize(1200, 720)
         # Start fullscreen by default
@@ -221,6 +221,7 @@ class App(tk.Tk):
         self.src_var = tk.StringVar(value="IMUS")
         self.dst_var = tk.StringVar(value="GENTRI")
         self.map_metric_var = tk.StringVar(value="distance")
+        self.bidir_var = tk.BooleanVar(value=False)  # Bidirectional toggle
 
         self.result_dist = {}
         self.result_time = {}
@@ -231,6 +232,9 @@ class App(tk.Tk):
         self._anim_job = None
         self._path_anim_progress = {}
         self._jet_progress = 0.0
+        self._animation_running = False
+        self._computing = False
+        self._bidir_blink_phase = 0.0  # For blinking bidirectional button
 
         # Node drag state
         self._drag_node = None
@@ -288,6 +292,22 @@ class App(tk.Tk):
                                    width=12, font=FONT_MONO, state="readonly")
         self._style_combo(self.dst_cb)
         self.dst_cb.pack(side="left", padx=4)
+
+        # Bidirectional toggle
+        self.bidir_btn = tk.Checkbutton(ctrl, text="↔ ALL BIDIRECTIONAL MODE",
+                                        variable=self.bidir_var,
+                                        command=self._on_bidir_toggle_safe,
+                                        bg=C["panel"], fg=C["purple"],
+                                        activebackground=C["panel"],
+                                        activeforeground=C["purple"],
+                                        selectcolor=C["border"],
+                                        font=FONT_MONOB,
+                                        relief="flat", bd=0,
+                                        highlightthickness=1,
+                                        highlightbackground=C["border"],
+                                        highlightcolor=C["purple"],
+                                        padx=8, pady=4)
+        self.bidir_btn.pack(side="left", padx=8)
 
         self._btn(ctrl, "▶  FIND PATHS", self._run, fg=C["yellow"],
                   bg="#1a1500").pack(side="left", padx=14)
@@ -577,6 +597,19 @@ class App(tk.Tk):
         self.csv_path.set(p)
         self._load_csv(p)
 
+    def _on_bidir_toggle_safe(self):
+        """Reload CSV when bidirectional toggle is changed (with protection)."""
+        if self._computing:
+            self.bidir_var.set(not self.bidir_var.get())
+            return
+        p = self.csv_path.get().strip()
+        p = os.path.expanduser(p)
+        if not os.path.isabs(p):
+            p = os.path.join(self.base_dir, p)
+        p = os.path.normpath(p)
+        if os.path.exists(p):
+            self._load_csv(p)
+
     def _load_csv(self, path):
         try:
             graph = {}
@@ -595,6 +628,19 @@ class App(tk.Tk):
                     graph[u][v] = {'distance':d,'time':t,'fuel':fl}
                     edges.append((u,v,d,t,fl))
                     nodes_set.add(u); nodes_set.add(v)
+            
+            # Add bidirectional edges if toggle is enabled
+            if self.bidir_var.get():
+                reverse_edges = []
+                for u, v, d, t, fl in edges:
+                    if v not in graph: graph[v] = {}
+                    # Only add reverse if it doesn't already exist
+                    if u not in graph[v]:
+                        graph[v][u] = {'distance':d,'time':t,'fuel':fl}
+                        reverse_edges.append((v, u, d, t, fl))
+                edges.extend(reverse_edges)
+                print(f"[DEBUG] Bidirectional mode: Added {len(reverse_edges)} reverse edges")
+            
             self.graph = graph
             self.edges = edges
             self.nodes = sorted(nodes_set)
@@ -625,13 +671,14 @@ class App(tk.Tk):
     #  RUN DIJKSTRA  (with same-node check)
     # ─────────────────────────────────────────
     def _run(self):
+        if self._computing:
+            return
         
         if not self.graph:
             self._set_status("✘ NO DATA LOADED", C["pink"]); return
         src = self.src_var.get(); dst = self.dst_var.get()
         if not src or not dst:
             self._set_status("✘ SELECT SOURCE AND TARGET", C["pink"]); return
-        # ── Error check: same node ──
         if src == dst:
             messagebox.showerror(
                 "Invalid Selection",
@@ -640,6 +687,8 @@ class App(tk.Tk):
             self._set_status("✘ SOURCE AND TARGET ARE THE SAME NODE", C["pink"])
             return
 
+        self._computing = True
+        self._disable_inputs()
         self._set_status("⟳ COMPUTING...", C["yellow"])
         self.update_idletasks()
 
@@ -654,6 +703,8 @@ class App(tk.Tk):
             print(f"  Total: {total} | Calculated: {[td, tt, tf]}")
         self.results = results
         self._path_anim_progress = {k:0.0 for k in results}
+        self._computing = False
+        self._enable_inputs()
 
         self._set_status(
             f"✔ {src} ──► {dst}   DIST:{results['distance']['td']}km  "
@@ -751,23 +802,37 @@ class App(tk.Tk):
             lw  = 6 if is_path else 1
             alpha_tag = "path_edge" if is_path else "dim_edge"
 
+            # Calculate both endpoints pulled back from nodes
+            dx, dy = x2 - x1, y2 - y1
+            dist = math.hypot(dx, dy)
+            if dist > 0:
+                back_dist_start = 35
+                back_dist_end = 45
+                norm_x, norm_y = dx / dist, dy / dist
+                start_x, start_y = x1 + norm_x * back_dist_start, y1 + norm_y * back_dist_start
+                end_x, end_y = x2 - norm_x * back_dist_end, y2 - norm_y * back_dist_end
+            else:
+                start_x, start_y = x1, y1
+                end_x, end_y = x2, y2
+
             if is_path:
+                # Draw glow layers first (without arrows)
                 for glw, gcol in [
                     (18, blend_with_bg(col, 0.5)),
                     (12, blend_with_bg(col, 0.7)),
-                    (lw, col),
                 ]:
-                    # Use both-headed arrows for bidirectional edges, single for unidirectional
-                    arrow_type = "both" if is_bidir else "last"
-                    arrow_shape = (10,14,5) if not is_bidir else (10,14,5)
-                    c.create_line(x1,y1,x2,y2, fill=gcol, width=glw,
-                                  arrow=arrow_type, arrowshape=arrow_shape,
+                    c.create_line(start_x,start_y,end_x,end_y, fill=gcol, width=glw,
                                   tags=alpha_tag)
-            else:
-                # Use both-headed arrows for bidirectional edges, single for unidirectional
+                # Draw top layer with visible arrows
                 arrow_type = "both" if is_bidir else "last"
-                arrow_shape = (6,9,3) if not is_bidir else (6,9,3)
-                c.create_line(x1,y1,x2,y2, fill=col, width=lw,
+                arrow_shape = (25, 35, 12)
+                c.create_line(start_x,start_y,end_x,end_y, fill=col, width=lw,
+                              arrow=arrow_type, arrowshape=arrow_shape,
+                              tags=alpha_tag)
+            else:
+                arrow_type = "both" if is_bidir else "last"
+                arrow_shape = (20, 28, 10)
+                c.create_line(start_x,start_y,end_x,end_y, fill=col, width=lw,
                               arrow=arrow_type, arrowshape=arrow_shape,
                               dash=(4,6))
 
@@ -815,7 +880,7 @@ class App(tk.Tk):
             x, y = self._sc(nx_, ny_, W, H)
             colors = path_nodes.get(node,[])
 
-            r = 32
+            r = 41
             if node == src:
                 nc = C["node_src"]; ring = C["pink"]
             elif node == dst:
@@ -1085,7 +1150,7 @@ class App(tk.Tk):
         tw.wm_geometry(f"+{x}+{y}")
         tw.configure(bg=C["border"])
         tk.Label(tw, text=text, bg=C["panel"], fg=C["cyan"],
-                 font=("Courier New",8), justify="left",
+                 font=("Courier New",16), justify="left",
                  relief="flat", padx=8, pady=6).pack()
         self._tooltip_win = tw
         self._tooltip_node = node
@@ -1102,28 +1167,31 @@ class App(tk.Tk):
     # ─────────────────────────────────────────
     def _animate_paths(self):
         if not hasattr(self,'results'): return
+        
+        if self._animation_running and self._anim_job:
+            self.after_cancel(self._anim_job)
+        
+        self._animation_running = True
         duration = 8000 
         start = time.time()*1000
 
         def step():
+            if not self._animation_running:
+                return
             elapsed = time.time()*1000 - start
             t = elapsed / duration
             
-            # Loop the animation infinitely
             t = t % 1.0
             
-            # Ease the animation
             t_ease = 1-(1-t)**3
             for k in self._path_anim_progress:
                 self._path_anim_progress[k] = t_ease
             
-            # Update jet progress (loops infinitely)
             self._jet_progress = t
             
             self._redraw_map()
-            # Continue animation indefinitely
-            self.after(16, step)
-        step()
+            self._anim_job = self.after(16, step)
+        self._anim_job = self.after(0, step)
 
     # ─────────────────────────────────────────
     #  BACKGROUND ANIMATION
@@ -1147,19 +1215,17 @@ class App(tk.Tk):
     def _tick_anim(self):
         c = self.canvas
         if not c.winfo_exists(): return
-        W = c.winfo_width(); H = c.winfo_height()
-        if W > 10 and H > 10:
-            c.delete("particle")
-            for p in self._particles:
-                p['x'] = (p['x']+p['vx'])%1.0
-                p['y'] = (p['y']+p['vy'])%1.0
-                x,y = p['x']*W, p['y']*H
-                r = p['r']
-                c.create_oval(x-r,y-r,x+r,y+r,
-                              fill=p['col'], outline="",
-                              tags="particle")
-
         self._pulse = (self._pulse+0.05)%( 2*math.pi)
+        
+        # Blink the bidirectional button highlight
+        self._bidir_blink_phase = (self._bidir_blink_phase + 0.05) % 1.0
+        if self._bidir_blink_phase < 0.5:
+            # Bright mode
+            self.bidir_btn.config(fg=C["cyan"], highlightcolor=C["cyan"])
+        else:
+            # Normal mode
+            self.bidir_btn.config(fg=C["purple"], highlightcolor=C["purple"])
+        
         self.after(50, self._tick_anim)
 
     # ─────────────────────────────────────────
@@ -1303,6 +1369,22 @@ class App(tk.Tk):
     # ─────────────────────────────────────────
     def _set_status(self, msg, color):
         self.status_lbl.config(text=msg, fg=color)
+
+    def _disable_inputs(self):
+        """Disable all input controls while computing."""
+        self.src_cb.config(state="disabled")
+        self.dst_cb.config(state="disabled")
+        self.bidir_btn.config(state="disabled")
+        for btn in [b for b in self.winfo_children() if isinstance(b, tk.Button)]:
+            btn.config(state="disabled")
+
+    def _enable_inputs(self):
+        """Re-enable all input controls after computing."""
+        self.src_cb.config(state="readonly")
+        self.dst_cb.config(state="readonly")
+        self.bidir_btn.config(state="normal")
+        for btn in [b for b in self.winfo_children() if isinstance(b, tk.Button)]:
+            btn.config(state="normal")
 
 
 # ══════════════════════════════════════════════
