@@ -170,12 +170,12 @@ def pick_edge_color(u, v):
 #  NODE POSITIONS  (normalised 0-1)
 # ══════════════════════════════════════════════
 BASE_POS = {
-    "DASMA":    (0.15, 0.15),
+    "DASMA":    (0.20, 0.15),
     "BACOOR":   (0.5,  0.15),
     "IMUS":     (0.85, 0.15),
     "SILANG":   (0.5,  0.5),
     "NOVELETA": (0.85, 0.5),
-    "KAWIT":    (0.15, 0.85),
+    "KAWIT":    (0.20, 0.85),
     "INDANG":   (0.5,  0.85),
     "GENTRI":   (0.85, 0.85),
 }
